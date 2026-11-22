@@ -68,10 +68,31 @@
 
   function tx(store, mode, fn) {
     return new Promise((resolve, reject) => {
-      const t = db.transaction(store, mode);
-      const out = fn(t.objectStore(store));
-      t.oncomplete = () => resolve(out && out.result);
-      t.onerror = () => reject(t.error);
+      const transaction = db.transaction(store, mode);
+      let request;
+
+      try {
+        request = fn(transaction.objectStore(store));
+      } catch (error) {
+        reject(error);
+        return;
+      }
+
+      transaction.oncomplete = () => {
+        resolve(request && request.result);
+      };
+
+      transaction.onerror = () => {
+        reject(transaction.error || (request && request.error));
+      };
+
+      transaction.onabort = () => {
+        reject(
+          transaction.error ||
+          (request && request.error) ||
+          new Error('La transacción fue cancelada.')
+        );
+      };
     });
   }
 
@@ -472,6 +493,12 @@
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
+
+    if (url) {
+      URL.revokeObjectURL(url);
+      url = null;
+    }
+
     currentId = null;
     $('now').textContent = 'Nada en reproducción';
     $('cur').textContent = '0:00';
@@ -767,7 +794,9 @@
   updateMuteLabel();
   updateModes();
 
-  if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+  }
 
   openDB()
     .then((d) => { db = d; return reload(); })
